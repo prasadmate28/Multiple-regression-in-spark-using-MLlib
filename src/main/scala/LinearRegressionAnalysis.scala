@@ -1,38 +1,42 @@
-import org.apache.spark.ml.regression.LinearRegressionModel
-import org.apache.spark.ml.linalg.Vectors
-import org.apache.spark.ml.feature.LabeledPoint
-
+import org.apache.spark.ml.regression.{LinearRegression, LinearRegressionModel}
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.ml.feature.StringIndexer
+import org.apache.spark.sql.functions.udf
 
 object LinearRegressionAnalysis extends App {
 
+  val spark = SparkSession.builder.master("local")
+    .appName("Linear Regression Analysis")
+    .getOrCreate()
 
-  import org.apache.spark.{SparkConf,SparkContext}
-  import org.apache.spark.ml.regression.LinearRegression
-  import org.apache.spark.sql.SparkSession
+  def loadTrainingData(data:DataFrame)():DataFrame={
+    //val featureCols = Array("X1","X2","X3","X4","X5","X6","X7","X8","X9","X10","X11","X12","X13","X14","X15")
+    val featureCols = data.schema.fieldNames.dropRight(1)
+    val classLabel = data.schema.fieldNames.last
 
-  def buildModel (fileName:String): LinearRegressionModel ={
+    val assembler =  new VectorAssembler()
+      .setInputCols(featureCols)
+      .setOutputCol("features")
 
-    val conf = new SparkConf().setAppName("Linear regression Test").setMaster("local[*]")
-    val sc = new SparkContext(conf)
-    println(sc)
+    val df2 = assembler.transform(data)
+    val labelIndexer = new StringIndexer().setInputCol(classLabel).setOutputCol("label")
+    val df3 = labelIndexer.fit(df2).transform(df2)
+    return df3
+  }
 
-    val dataFile = spark.read.format("csv")
-      .option("header","true")
-      .option("inferSchema","true")
-      .load("/home/prasad/R/Workspace/Project1/dataset-p1.csv") //replace with args(0)
-
-
-    dataFile.show(10) // display first 10 entries
-
+  def buildModel(trainingData: DataFrame)={
     val lr = new LinearRegression()
-    val model = lr.fit(dataFile)
-    return model
+
+    val model = lr.fit(trainingData)
+
+    displaySummaryStatistics(model)
   }
 
   def displaySummaryStatistics (model:LinearRegressionModel):Unit = {
     // Print the coefficients and intercept for linear regression
     println(s"Coefficients: ${model.coefficients} Intercept: ${model.intercept}")
-
 
     // Summarize the model over the training set and print out some metrics
     val trainingSummary = model.summary
@@ -42,32 +46,40 @@ object LinearRegressionAnalysis extends App {
     println(s"RMSE: ${trainingSummary.rootMeanSquaredError}")
     println(s"r2: ${trainingSummary.r2}")
 
+
   }
 
+  def calcVIF()={
 
-  val spark = SparkSession.builder.master("local")
-    .appName("spark session example")
-    .getOrCreate()
+  }
 
-
+  var fileName:String = "dataset-p1.csv"
   //var fileName:String = args(0)
-  var fileName:String = "/home/prasad/R/Workspace/Project1/dataset-p1.csv"
 
-  val model = buildModel(fileName)
-
-  /*val dataFile = spark.read.format("csv")
+  val dataFile = spark.read.format("csv")
     .option("header","true")
     .option("inferSchema","true")
-    .load("/home/prasad/R/Workspace/Project1/dataset-p1.csv") //replace with args(0)*/
+    .load(fileName) //replace with args(0)
 
+  //  Run linear regression model with given dataset
+  val trainingData = loadTrainingData(dataFile)
 
-  displaySummaryStatistics(model)
+  buildModel(trainingData)
 
+  // Augment X4^2 column to the data and run linear regression
+  val squaredColumn : (Double) => Double = (x4:Double) => math.pow(x4,2)
 
-  // add column transformation
-  def transform (x:Double):Double={
-    return x*x
-  }
+  val addColumnUDF = udf(squaredColumn)
+
+  val transformed_dataFile = dataFile.withColumn("X4sq",addColumnUDF(dataFile.col("X4")))
+
+  val trainingDataAugmented = loadTrainingData(transformed_dataFile)
+
+  buildModel(trainingDataAugmented)
+
+  // removing redundunt features
+
+  
 
 
 }
